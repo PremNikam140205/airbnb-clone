@@ -8,7 +8,9 @@ const ejsMate = require("ejs-mate");
 const WrapAsync = require("./utils/wrapAsync.js");
 const wrapAsync = require("./utils/wrapAsync.js");
 const ExpressError = require("./utils/ExpressError.js");
-const { listingSchema } = require("./schema.js");
+const { listingSchema ,reviewSchema} = require("./schema.js");
+const Review = require("./models/review.js");
+const review = require("./models/review.js");
 
 const Mongo_Url = "mongodb://127.0.0.1:27017/wanderlust";
 async function main() {
@@ -43,6 +45,16 @@ const validateListing = (req,res,next) => {
         }
 };
 
+const validateReview = (req,res,next) => {
+    let {error} = reviewSchema.validate(req.body);
+        if(error){
+            let errMsg = error.details.map((el) => el.message).join(",");
+            throw new ExpressError(400, errMsg);
+        }else {
+            next();
+        }
+};
+
 //index route
 app.get("/listings", wrapAsync(async (req , res) => {
     const allListings = await Listing.find({});
@@ -57,7 +69,7 @@ app.get("/listings/new" , (req , res) => {
 //show route
 app.get("/listings/:id", wrapAsync (async(req,res) => {
     let {id} = req.params;
-    const listing = await Listing.findById(id);
+    const listing = await Listing.findById(id).populate("reviews");
     res.render("./listings/show.ejs", {listing});
 }));
 
@@ -93,36 +105,31 @@ app.delete("/listings/:id", wrapAsync (async (req,res)=>{
     res.redirect("/listings");
 }));
 
-//chatgpt
-// app.post("/listings", async (req, res) => {
-//     console.log(req.body); // debug
+//Reviews
+//Post Review Route
+app.post("/listings/:id/reviews",validateReview, wrapAsync(async (req,res) => {
+    let listing = await Listing.findById(req.params.id);
+    let newReview = new Review(req.body.review);
 
-//     let listing = req.body.listing; // correct
+    listing.reviews.push(newReview);
 
-//     const newListing = new Listing(listing);
-//     await newListing.save();
+    await newReview.save();
+    await listing.save();
 
-//     res.redirect("/listings");
-// });
+    res.redirect(`/listings/${listing._id}`);
+}));
 
-// app.get("/testListings", async (req,res) => {
-//     try{
-//         let sampleListing = new Listing({
-//         title : "my new villa",
-//         description: "By the beach",
-//         price: 1200,
-//         location: "calangute, Goa",
-//         country: "India",
-//     });
+//Delete Review Route
+app.delete("/listings/:id/reviews/:reviewId", wrapAsync (async (req,res) => {
+    let{id, reviewId} = req.params;
 
-//     await sampleListing.save();
-//     console.log("sample was saved");
-//     res.send("sucessfully testing");
-//  }catch (err) {
-//     console.log(err);
-//     res.send("error ocurres");
-//  }
-// });
+    await Listing.findByIdAndUpdate(id, {$pull: {reviews: reviewId}});
+    await Review.findByIdAndDelete(reviewId);
+
+    res.redirect(`listings/${id}`);
+}));
+
+
 
 app.use((req, res, next) => {
     next(new ExpressError(404, "Page Not Found"));
